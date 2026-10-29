@@ -1,0 +1,85 @@
+# Tests on every push and pull request. Installers (Windows, macOS, Linux) are built when you
+# push a version tag such as v1.0.0 (this also publishes a GitHub Release), or on demand from
+# the Actions tab ("Run workflow").
+name: Test, build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Compile and run tests
+        run: |
+          mkdir -p build/test build/run
+          javac -encoding UTF-8 -d build/test src/PasswordManager.java test/ManagerTests.java
+          cd build/run
+          java -Djava.awt.headless=true -cp ../test ManagerTests
+
+  build:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: build-windows.bat
+          - os: macos-latest
+            script: bash build-mac.sh
+          - os: ubuntu-latest
+            script: bash build-linux.sh deb
+    runs-on: ${{ matrix.os }}
+    env:
+      APP_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && substring(github.ref_name, 1) || '1.0.0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Make sure the WiX Toolset is available (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command candle.exe -ErrorAction SilentlyContinue)) {
+            choco install wixtoolset --no-progress -y
+            "C:\Program Files (x86)\WiX Toolset v3.14\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          }
+      - name: Build installer
+        run: ${{ matrix.script }}
+        shell: ${{ matrix.os == 'windows-latest' && 'cmd' || 'bash' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: build/installer/*
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

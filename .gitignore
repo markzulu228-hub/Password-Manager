@@ -1,0 +1,20 @@
+# Build output
+build/
+out/
+*.class
+*.jar
+
+# NEVER commit vaults, backups, exports or conflict copies: they contain your passwords
+vault*.dat
+*.dat.bak
+*.dat.tmp
+passwords.txt
+passwords-export*.csv
+*.csv
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
